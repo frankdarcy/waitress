@@ -194,6 +194,7 @@ class Task(object):
         date_header = None
         server_header = None
         connection_close_header = None
+        upgrade_header = None
 
         for i, (headername, headerval) in enumerate(response_headers):
             headername = '-'.join(
@@ -207,6 +208,8 @@ class Task(object):
                 server_header = headerval
             if headername == 'Connection':
                 connection_close_header = headerval.lower()
+            if headername == 'Upgrade':
+                upgrade_header = headerval.lower()
             # replace with properly capitalized version
             response_headers[i] = (headername, headerval)
 
@@ -222,7 +225,11 @@ class Task(object):
             self.close_on_finish = True
 
         if version == '1.0':
-            if connection == 'keep-alive':
+            if connection_close_header and upgrade_header and \
+                connection_close_header == 'upgrade' and \
+                upgrade_header == 'websocket':
+                pass
+            elif connection == 'keep-alive':
                 if not content_length_header:
                     close_on_finish()
                 else:
@@ -231,14 +238,20 @@ class Task(object):
                 close_on_finish()
 
         elif version == '1.1':
-            if connection == 'close':
-                close_on_finish()
 
-            if not content_length_header:
-                response_headers.append(('Transfer-Encoding', 'chunked'))
-                self.chunked_response = True
-                if not self.close_on_finish:
+            if connection_close_header and upgrade_header and \
+                connection_close_header == 'upgrade' and \
+                upgrade_header == 'websocket':
+                pass
+            else:
+                if connection == 'close':
                     close_on_finish()
+
+                if not content_length_header:
+                    response_headers.append(('Transfer-Encoding', 'chunked'))
+                    self.chunked_response = True
+                    if not self.close_on_finish:
+                        close_on_finish()
 
             # under HTTP 1.1 keep-alive is default, no need to set the header
         else:
@@ -378,10 +391,10 @@ class WSGITask(Task):
                 kl = k.lower()
                 if kl == 'content-length':
                     self.content_length = int(v)
-                elif kl in hop_by_hop:
-                    raise AssertionError(
-                        '%s is a "hop-by-hop" header; it cannot be used by '
-                        'a WSGI application (see PEP 3333)' % k)
+                #elif kl in hop_by_hop:
+                #    raise AssertionError(
+                #        '%s is a "hop-by-hop" header; it cannot be used by '
+                #        'a WSGI application (see PEP 3333)' % k)
 
             self.response_headers.extend(headers)
 
@@ -517,5 +530,14 @@ class WSGITask(Task):
         environ['wsgi.input'] = request.get_body_stream()
         environ['wsgi.file_wrapper'] = ReadOnlyFileBasedBuffer
 
+        environ['ws4py.socket'] = self.channel
+
         self.environ = environ
         return environ
+
+    def finish(self):
+        self.environ.pop('ws4py.socket', None)
+        ws = self.environ.pop('ws4py.websocket', None)
+        if ws:
+            self.channel.websocket_opened(ws)
+        Task.finish(self)

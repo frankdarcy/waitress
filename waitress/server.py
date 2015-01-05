@@ -20,7 +20,7 @@ import time
 
 from waitress import trigger
 from waitress.adjustments import Adjustments
-from waitress.channel import HTTPChannel
+from waitress.ws4py_support import WSHTTPChannel
 from waitress.task import ThreadedTaskDispatcher
 from waitress.utilities import cleanup_unix_socket, logging_dispatcher
 
@@ -50,7 +50,7 @@ def create_server(application,
 
 class BaseWSGIServer(logging_dispatcher, object):
 
-    channel_class = HTTPChannel
+    channel_class = WSHTTPChannel
     next_channel_cleanup = 0
     socketmod = socket # test shim
     asyncore = asyncore # test shim
